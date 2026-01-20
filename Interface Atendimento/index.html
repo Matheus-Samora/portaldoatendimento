@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atendimento - Protocolo IMES</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"></script>
+
+    <!-- Fonte Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        slate: { 850: '#151e32', 900: '#0f172a', 950: '#020617' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.025em;
+        }
+
+        .modal-tab {
+            cursor: pointer;
+            padding: 10px 20px;
+            border-bottom: 2px solid transparent;
+            color: #94a3b8;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        .modal-tab.active {
+            color: #60a5fa;
+            border-bottom-color: #60a5fa;
+        }
+
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 20px; }
+        
+        .detail-row:nth-child(odd) { background-color: rgba(255,255,255,0.02); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Loading Inicial -->
+    <div id="loading-screen" class="fixed inset-0 flex flex-col items-center justify-center z-50 bg-slate-950 px-4">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mb-4"></div>
+        <p class="text-slate-400 text-sm">Carregando lista de atendimentos...</p>
+    </div>
+
+    <!-- PAINEL PRINCIPAL -->
+    <div id="main-panel" class="hidden flex-col h-full fade-in">
+        
+        <!-- Header -->
+        <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-6 py-4 flex justify-between items-center z-10">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-bold text-white">A</div>
+                <div>
+                    <h1 class="text-sm font-bold text-white">Central de Consultas</h1>
+                    <div class="flex items-center gap-2" id="status-indicator">
+                        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse" id="status-dot"></span>
+                        <p class="text-xs text-slate-400" id="status-text">Sistema Online</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="connection-error" class="hidden items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-xs text-red-400 font-medium animate-pulse">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Proxy Offline
+            </div>
+        </header>
+
+        <!-- Conteúdo: Busca e Lista -->
+        <main class="flex-1 overflow-hidden flex flex-col max-w-5xl mx-auto w-full p-4 md:p-6 gap-6">
+            
+            <!-- Barra de Busca -->
+            <div class="flex flex-col gap-2">
+                <div class="flex justify-between items-end">
+                    <h2 class="text-lg font-semibold text-white">Atendimentos Recentes</h2>
+                    <span class="text-xs text-slate-400 mb-1" id="record-count">0 registros encontrados</span>
+                </div>
+                
+                <div class="relative group">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-slate-500 group-focus-within:text-blue-400 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                    <input type="text" id="search-input" 
+                        class="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl py-3 pl-12 pr-4 shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition placeholder-slate-500 text-sm md:text-base" 
+                        placeholder="Filtrar por nome do aluno, CPF ou ID...">
+                </div>
+            </div>
+
+            <!-- Área de Resultados -->
+            <div id="results-area" class="flex-1 bg-slate-900/30 rounded-2xl border border-slate-800 overflow-hidden flex flex-col relative">
+                <div id="empty-state" class="hidden absolute inset-0 flex flex-col items-center justify-center text-slate-600 p-8 text-center">
+                    <svg class="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                    <p class="text-sm font-medium" id="empty-text">Carregando dados...</p>
+                </div>
+                <div id="timeline-list" class="flex-1 overflow-y-auto custom-scroll p-4 space-y-3"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal de Detalhes -->
+    <div id="detail-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center p-4 z-50 fade-in">
+        <div class="bg-[#0f172a] border border-slate-700 w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col" onclick="event.stopPropagation()">
+            
+            <div class="px-6 py-4 border-b border-slate-700 bg-slate-900">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-xl font-bold text-white flex items-center gap-2" id="modal-title">Detalhes</h3>
+                        <p class="text-xs text-slate-400 mt-1" id="modal-subtitle">ID: --</p>
+                    </div>
+                    <button onclick="closeModal()" class="text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg p-2 transition">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                <div class="flex gap-4 border-b border-slate-800">
+                    <div id="tab-documentos" class="modal-tab active" onclick="switchModalTab('documentos')">
+                        Análise Documental
+                    </div>
+                    <div id="tab-solis" class="modal-tab" onclick="switchModalTab('solis')">
+                        Sistema Solis (Financeiro)
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto custom-scroll bg-slate-900/50 relative">
+                
+                <!-- TAB 1: Documentos -->
+                <div id="view-documentos" class="p-6">
+                    <div class="mb-6 bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 flex items-start sm:items-center gap-4">
+                        <div id="modal-status-icon" class="p-3 rounded-full bg-slate-700 shrink-0"></div>
+                        <div>
+                            <p class="text-xs text-slate-400 uppercase font-semibold">Status do Processo</p>
+                            <p id="modal-status-text" class="text-lg font-medium text-white leading-tight">--</p>
+                            <p id="modal-status-desc" class="text-sm text-slate-400 mt-1 leading-relaxed">--</p>
+                        </div>
+                    </div>
+
+                    <div id="modal-data-section" class="hidden">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-blue-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                Documentos Analisados
+                            </h4>
+                            <span class="text-[10px] text-green-300 bg-green-500/10 px-2 py-1 rounded border border-green-500/20">Qualificado pela IA</span>
+                        </div>
+                        <div id="modal-data-content" class="space-y-4"></div>
+                    </div>
+
+                    <div id="modal-error-section" class="hidden mt-6 animate-pulse">
+                        <h4 class="text-red-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">Motivo da Falha Geral</h4>
+                        <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-200 font-mono text-xs whitespace-pre-wrap" id="modal-error-text"></div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Solis -->
+                <div id="view-solis" class="hidden p-6">
+                    
+                    <!-- Busca Inicial Solis -->
+                    <div id="solis-search-container" class="flex flex-col gap-4 mb-6">
+                        <div class="bg-blue-900/20 border border-blue-500/30 p-4 rounded-lg flex items-start gap-3">
+                            <svg class="w-5 h-5 text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <div>
+                                <p class="text-sm text-blue-200 font-semibold">Vincular Registro</p>
+                                <p class="text-xs text-blue-300/70">O sistema está pesquisando automaticamente os dados no Solis...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Input Manual -->
+                        <div id="manual-search-box" class="hidden flex gap-2 mt-2">
+                            <input type="text" id="solis-id-input" placeholder="Digite o CPF ou Nome Completo..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:border-blue-500 outline-none">
+                            <button onclick="manualSolisSearch()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">Pesquisar</button>
+                        </div>
+                    </div>
+
+                    <div id="solis-loading" class="hidden flex-col items-center justify-center py-12">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-3"></div>
+                        <p class="text-slate-400 text-sm" id="solis-loading-text">Conectando ao sistema Solis...</p>
+                    </div>
+
+                    <div id="solis-error" class="hidden bg-red-500/10 border border-red-500/30 p-4 rounded-lg text-center text-red-300 text-sm mb-4"></div>
+
+                    <!-- Conteúdo Solis -->
+                    <div id="solis-content" class="hidden space-y-6">
+                        
+                        <!-- Dados do Aluno Encontrado -->
+                        <div class="bg-slate-800/60 p-4 rounded-lg border border-slate-700/50 flex flex-col gap-4 animate-[fadeIn_0.5s_ease-out]">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-lg border border-slate-600">
+                                        <span id="solis-avatar-initial">--</span>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Aluno Localizado</p>
+                                        <p id="solis-person-name" class="text-lg font-bold text-white leading-tight">--</p>
+                                        <p id="solis-person-birth" class="text-xs text-slate-400 mt-0.5">Nascimento: --</p>
+                                    </div>
+                                </div>
+                                <span id="solis-person-id" class="text-xs font-mono text-blue-300 bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full shadow-sm">ID: --</span>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 border-t border-slate-700/50 pt-4">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-8 h-8 rounded bg-slate-700/50 flex items-center justify-center text-slate-400 shrink-0">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0c0 .884-.5 2-2 2H4" /></svg>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-[10px] text-slate-500 uppercase font-bold">CPF</p>
+                                        <p id="solis-person-cpf" class="text-sm text-slate-200 font-mono tracking-wide truncate">--</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-8 h-8 rounded bg-slate-700/50 flex items-center justify-center text-slate-400 shrink-0">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-[10px] text-slate-500 uppercase font-bold">E-mail</p>
+                                        <p id="solis-person-email" class="text-sm text-slate-200 truncate">--</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-8 h-8 rounded bg-slate-700/50 flex items-center justify-center text-slate-400 shrink-0">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-[10px] text-slate-500 uppercase font-bold">Celular</p>
+                                        <p id="solis-person-phone" class="text-sm text-slate-200 truncate">--</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Classificação Acadêmica -->
+                            <div class="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                <h4 class="text-slate-400 text-xs font-bold uppercase mb-2">Vínculo Acadêmico</h4>
+                                <div class="flex items-center gap-3">
+                                    <div id="solis-type-icon" class="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-700 text-white">--</div>
+                                    <div>
+                                        <p id="solis-student-type" class="text-xl font-bold text-white">--</p>
+                                        <p id="solis-contract-info" class="text-xs text-slate-400">--</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Situação Financeira -->
+                            <div class="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                <h4 class="text-slate-400 text-xs font-bold uppercase mb-2">Saúde Financeira</h4>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-700 text-white">
+                                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    </div>
+                                    <div>
+                                        <p id="solis-finance-status" class="text-xl font-bold text-white">--</p>
+                                        <p id="solis-debt-info" class="text-xs text-slate-400">--</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tabela Financeira -->
+                        <div id="finance-table-container">
+                            <h4 class="text-slate-200 text-sm font-bold mb-3 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                Histórico de Títulos
+                            </h4>
+                            <div class="overflow-x-auto rounded-lg border border-slate-700 max-h-60 overflow-y-auto custom-scroll">
+                                <table class="w-full text-sm text-left text-slate-400">
+                                    <thead class="text-xs text-slate-200 uppercase bg-slate-800 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-3">Vencimento</th>
+                                            <th class="px-4 py-3">Parcela</th>
+                                            <th class="px-4 py-3 text-right">Valor Atualizado</th>
+                                            <th class="px-4 py-3 text-right">Pago</th>
+                                            <th class="px-4 py-3 text-right">Saldo</th>
+                                            <th class="px-4 py-3 text-center">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="solis-financial-table" class="divide-y divide-slate-700 bg-slate-900/40"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-700 bg-slate-900 flex justify-end">
+                <button onclick="closeModal()" class="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2 rounded-lg font-medium transition">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, query, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURAÇÃO PROXY ---
+        // ATENÇÃO: Usando 127.0.0.1 explicitamente para casar com o app.run(host='127.0.0.1') do Python
+        const PROXY_BASE = "http://127.0.0.1:5000";
+        const PROXY_URL = `${PROXY_BASE}/proxy`;
+
+        // --- ENDPOINTS SOLIS ---
+        const SOLIS_ENDPOINTS = {
+            contract: "/api/academico/contrato/buscar",
+            financial: "/api/financeiro/titulo/buscar"
+        };
+
+        const firebaseConfig = {
+             apiKey: "AIzaSyDP20JMVQKaQ-o9oMxzOACM0SKRPxa6Yag",
+             authDomain: "protocolo-imes-imm.firebaseapp.com",
+             projectId: "protocolo-imes-imm",
+             storageBucket: "protocolo-imes-imm.firebasestorage.app",
+             messagingSenderId: "284416777232",
+             appId: "1:284416777232:web:bf601ea92d8b92b4d73e95",
+             measurementId: "G-TLRDLMM6DB"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app, "default"); 
+
+        const els = {
+            loadingScreen: document.getElementById('loading-screen'),
+            mainPanel: document.getElementById('main-panel'),
+            searchInput: document.getElementById('search-input'),
+            timelineList: document.getElementById('timeline-list'),
+            emptyState: document.getElementById('empty-state'),
+            emptyText: document.getElementById('empty-text'),
+            recordCount: document.getElementById('record-count'),
+            connectionError: document.getElementById('connection-error')
+        };
+
+        let allDocs = [];
+        let currentItemSolis = null;
+
+        // --- VERIFICAÇÃO DE CONEXÃO COM PYTHON ---
+        async function checkProxyConnection() {
+            try {
+                const res = await fetch(`${PROXY_BASE}/status`, { method: 'GET' });
+                if(res.ok) {
+                    els.connectionError.classList.add('hidden');
+                } else {
+                    throw new Error('Status != 200');
+                }
+            } catch (err) {
+                console.error("Proxy offline:", err);
+                els.connectionError.classList.remove('hidden');
+            }
+        }
+
+        window.switchModalTab = (tab) => {
+            const tabs = ['documentos', 'solis'];
+            tabs.forEach(t => {
+                const elContent = document.getElementById(`view-${t}`);
+                const elTab = document.getElementById(`tab-${t}`);
+                if (t === tab) {
+                    elContent.classList.remove('hidden');
+                    elTab.classList.add('active');
+                    if(tab === 'solis' && currentItemSolis) {
+                        initSolisAutoLoad();
+                    }
+                } else {
+                    elContent.classList.add('hidden');
+                    elTab.classList.remove('active');
+                }
+            });
+        };
+
+        // --- LÓGICA DE BUSCA AUTOMÁTICA (VIA PROXY COM FALLBACK INTELIGENTE) ---
+        async function initSolisAutoLoad() {
+            const loading = document.getElementById('solis-loading');
+            const loadingText = document.getElementById('solis-loading-text');
+            const content = document.getElementById('solis-content');
+            const errorEl = document.getElementById('solis-error');
+            const manualBox = document.getElementById('manual-search-box');
+
+            content.classList.add('hidden');
+            errorEl.classList.add('hidden');
+            manualBox.classList.add('hidden');
+            loading.classList.remove('hidden');
+            loading.classList.add('flex');
+            
+            // 1. Tentar obter CPF dos dados do Firebase (Análise IA)
+            let cpfToSearch = "";
+            if(currentItemSolis.dados_analise && typeof currentItemSolis.dados_analise === 'object') {
+                 Object.values(currentItemSolis.dados_analise).forEach(d => {
+                     if(d?.extracted_data?.numero_cpf) {
+                         cpfToSearch = d.extracted_data.numero_cpf.replace(/\D/g, ''); 
+                     }
+                 });
+            }
+            if(!cpfToSearch && currentItemSolis.dados_analise && currentItemSolis.dados_analise.cpf) {
+                cpfToSearch = currentItemSolis.dados_analise.cpf.replace(/\D/g, '');
+            }
+
+            // 2. Tentar obter Nome (Prioridade: Extraído Completo > Root)
+            let nameToSearch = currentItemSolis.aluno_nome || "";
+
+            // Varredura nos dados extraídos para achar nomes melhores (ex: "nome_completo", "nome_aluno_sistema")
+            if(currentItemSolis.dados_analise && typeof currentItemSolis.dados_analise === 'object') {
+                 Object.values(currentItemSolis.dados_analise).forEach(d => {
+                     const extracted = d?.extracted_data;
+                     if(extracted) {
+                         // Chaves comuns que a IA pode ter usado para extrair o nome completo
+                         const possibleKeys = ['nome_completo', 'nome_aluno', 'nome_aluno_sistema', 'nome_do_aluno', 'nome_beneficiario', 'nome'];
+                         for (const key of possibleKeys) {
+                             if (extracted[key] && typeof extracted[key] === 'string' && extracted[key].length > 5) {
+                                 // Lógica simples: se o nome extraído é maior que o atual, provavelmente é mais completo
+                                 if (extracted[key].length > nameToSearch.length) {
+                                     nameToSearch = extracted[key];
+                                 }
+                             }
+                         }
+                     }
+                 });
+            }
+
+            // Feedback visual sobre o que está sendo buscado
+            if (cpfToSearch) {
+                loadingText.textContent = `Pesquisando CPF ${cpfToSearch}...`;
+            } else if (nameToSearch) {
+                loadingText.textContent = `CPF não detectado. Pesquisando por nome: "${nameToSearch}"...`;
+            } else {
+                loadingText.textContent = "Pesquisando aluno no Sistema Solis...";
+            }
+
+            try {
+                // Prepara Payload para busca inteligente
+                const payload = {};
+                if(cpfToSearch) payload.cpf = cpfToSearch;
+                if(nameToSearch) payload.nome = nameToSearch;
+
+                // Chama o endpoint de busca inteligente
+                const res = await fetch(`${PROXY_URL}/smart-search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload) 
+                });
+
+                if(!res.ok) {
+                    throw new Error("Aluno não encontrado automaticamente.");
+                }
+
+                const personData = await res.json();
+                
+                // Verifica se retornou um ID válido
+                // O relatório pode retornar 'identificador', 'ID', ou 'personid'
+                const pid = personData.identificador || personData.ID || personData.personid;
+
+                if(pid) {
+                    loadingText.textContent = "Aluno encontrado! Carregando dados financeiros...";
+                    
+                    // ATUALIZAÇÃO IMEDIATA DOS DADOS PESSOAIS
+                    // Isso garante que mesmo que o financeiro falhe, os dados pessoais apareçam
+                    content.classList.remove('hidden');
+                    loading.classList.add('hidden'); // Oculta o loader geral, pois agora vamos carregar partes específicas
+                    loading.classList.remove('flex');
+
+                    updateSolisUI(personData, cpfToSearch);
+                    
+                    // Busca dados financeiros e contratos DEPOIS de mostrar os dados pessoais
+                    await fetchSolisData(pid);
+                } else {
+                    throw new Error("Dados de aluno incompletos retornados.");
+                }
+
+            } catch (err) {
+                console.error("Erro Auto Load:", err);
+                loading.classList.add('hidden');
+                loading.classList.remove('flex');
+                content.classList.add('hidden'); // Oculta conteúdo se falhar na busca PESSOAL
+                
+                let msg = 'Aluno não identificado automaticamente.';
+                if(!cpfToSearch && !nameToSearch) msg += ' (Sem dados para busca).';
+                else msg += ' (Busca por CPF e Nome falhou).';
+                
+                errorEl.innerHTML = `<p class="text-red-400 text-sm mb-2">${msg}</p>`;
+                errorEl.classList.remove('hidden');
+                manualBox.classList.remove('hidden');
+                
+                // Verifica conexão se der erro
+                checkProxyConnection();
+            }
+        }
+
+        // Função melhorada para ler chaves insensíveis a maiúsculas/minúsculas
+        function getCaseInsensitive(obj, key) {
+            if (!obj) return null;
+            const keyLower = key.toLowerCase();
+            const foundKey = Object.keys(obj).find(k => k.toLowerCase() === keyLower);
+            return foundKey ? obj[foundKey] : null;
+        }
+
+        function updateSolisUI(personData, originalCpf) {
+            console.log("Atualizando UI com dados:", personData); // Debug
+
+            // Tenta obter valores usando chaves comuns com fallback insensível a caixa
+            const nome = getCaseInsensitive(personData, 'nome') || getCaseInsensitive(personData, 'razao_social') || "Sem Nome";
+            const id = getCaseInsensitive(personData, 'identificador') || getCaseInsensitive(personData, 'id') || getCaseInsensitive(personData, 'personid');
+            const email = getCaseInsensitive(personData, 'email') || "--";
+            const cpf = getCaseInsensitive(personData, 'cpf') || getCaseInsensitive(personData, 'cnpj') || originalCpf || "--";
+            const celular = getCaseInsensitive(personData, 'telefonecelular') || getCaseInsensitive(personData, 'celular') || "--";
+            const nascimento = getCaseInsensitive(personData, 'datadenascimento') || getCaseInsensitive(personData, 'nascimento') || "--";
+
+            document.getElementById('solis-person-name').textContent = nome;
+            document.getElementById('solis-person-id').textContent = `ID: ${id || 'N/A'}`;
+            document.getElementById('solis-person-email').textContent = email;
+            document.getElementById('solis-person-cpf').textContent = cpf;
+            document.getElementById('solis-person-phone').textContent = celular;
+            document.getElementById('solis-person-birth').textContent = nascimento;
+            
+            const initial = nome && nome !== "Sem Nome" ? nome.charAt(0).toUpperCase() : '?';
+            document.getElementById('solis-avatar-initial').textContent = initial;
+
+            // Resetar indicadores financeiros enquanto carrega
+            document.getElementById('solis-student-type').textContent = "Verificando...";
+            document.getElementById('solis-finance-status').textContent = "Verificando...";
+            document.getElementById('solis-financial-table').innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-500 italic"><div class="flex justify-center items-center gap-2"><div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div> Carregando financeiro...</div></td></tr>';
+        }
+
+        // Busca Manual
+        window.manualSolisSearch = async () => {
+            const queryVal = document.getElementById('solis-id-input').value.trim();
+            if(!queryVal) return;
+            
+            const cleanVal = queryVal.replace(/\D/g, '');
+            const payload = {};
+            
+            // Lógica simples: se 11 digitos = CPF, senão = ID ou Nome
+            if(cleanVal.length === 11) {
+                payload.cpf = cleanVal;
+            } else if(cleanVal.length > 0 && cleanVal.length < 11) {
+                // ID Direto - Busca Financeiro e encerra
+                document.getElementById('solis-person-name').textContent = "Busca Manual por ID";
+                document.getElementById('solis-person-id').textContent = `ID: ${cleanVal}`;
+                
+                const content = document.getElementById('solis-content');
+                content.classList.remove('hidden');
+                await fetchSolisData(cleanVal);
+                return;
+            } else {
+                // Nome
+                payload.nome = queryVal;
+            }
+
+            try {
+                 const res = await fetch(`${PROXY_URL}/smart-search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if(!res.ok) throw new Error("Não encontrado.");
+                
+                const data = await res.json();
+                const pid = data.identificador || data.ID || data.personid;
+                
+                if(pid) {
+                    const content = document.getElementById('solis-content');
+                    content.classList.remove('hidden');
+                    updateSolisUI(data, payload.cpf);
+                    await fetchSolisData(pid);
+                } else {
+                     throw new Error("ID não retornado.");
+                }
+
+            } catch(e) {
+                alert("Erro na busca: " + e.message);
+                checkProxyConnection();
+            }
+        };
+
+        async function fetchSolisData(personId) {
+            const errorEl = document.getElementById('solis-error');
+            const manualBox = document.getElementById('manual-search-box');
+            
+            errorEl.classList.add('hidden'); 
+            manualBox.classList.add('hidden');
+
+            try {
+                // Fazemos as chamadas separadamente para que um erro em uma não pare a outra
+                // Chamada de Contratos
+                let dadosContratos = [];
+                try {
+                    const resContrato = await fetch(`${PROXY_URL}/api`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            endpoint: SOLIS_ENDPOINTS.contract, 
+                            params: { personId: personId } 
+                        })
+                    });
+                    
+                    if(resContrato.ok) {
+                        const jsonContrato = await resContrato.json();
+                        dadosContratos = Array.isArray(jsonContrato) ? jsonContrato : (jsonContrato.items || []);
+                    }
+                } catch(e) {
+                    console.error("Erro ao buscar contratos:", e);
+                }
+
+                // Chamada de Financeiro
+                let dadosFinanceiros = [];
+                let erroFinanceiro = false;
+                try {
+                    const resFinanceiro = await fetch(`${PROXY_URL}/api`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            endpoint: SOLIS_ENDPOINTS.financial, 
+                            params: { personId: personId, limit: 100 } 
+                        })
+                    });
+                    
+                    if(resFinanceiro.ok) {
+                        const jsonFinanceiro = await resFinanceiro.json();
+                        dadosFinanceiros = Array.isArray(jsonFinanceiro) ? jsonFinanceiro : (jsonFinanceiro.items || []);
+                    } else {
+                        erroFinanceiro = true;
+                    }
+                } catch(e) {
+                    console.error("Erro ao buscar financeiro:", e);
+                    erroFinanceiro = true;
+                }
+
+                renderSolisUI({ contratos: dadosContratos, financeiro: dadosFinanceiros, erroFinanceiro });
+
+            } catch (err) {
+                errorEl.textContent = "Erro crítico ao carregar dados complementares.";
+                errorEl.classList.remove('hidden');
+            }
+        }
+
+        function renderSolisUI({ contratos, financeiro, erroFinanceiro }) {
+            const studentTypeEl = document.getElementById('solis-student-type');
+            const typeIconEl = document.getElementById('solis-type-icon');
+            const contractInfoEl = document.getElementById('solis-contract-info');
+
+            const isGraduacao = contratos && contratos.length > 0;
+
+            if (isGraduacao) {
+                studentTypeEl.textContent = "Graduação";
+                studentTypeEl.className = "text-xl font-bold text-blue-400";
+                typeIconEl.className = "w-10 h-10 rounded-lg flex items-center justify-center bg-blue-500/20 text-blue-400";
+                typeIconEl.innerHTML = `<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" /></svg>`;
+                const curso = contratos[0].courseName || contratos[0].nomeCurso || "Curso Identificado";
+                contractInfoEl.textContent = `Contrato Ativo: ${curso}`;
+            } else {
+                studentTypeEl.textContent = "Pós-Graduação / Outros";
+                studentTypeEl.className = "text-xl font-bold text-purple-400";
+                typeIconEl.className = "w-10 h-10 rounded-lg flex items-center justify-center bg-purple-500/20 text-purple-400";
+                typeIconEl.innerHTML = `<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>`;
+                contractInfoEl.textContent = "Nenhum contrato de graduação encontrado.";
+            }
+
+            const tableBody = document.getElementById('solis-financial-table');
+            const financeStatusEl = document.getElementById('solis-finance-status');
+            const debtInfoEl = document.getElementById('solis-debt-info');
+            
+            tableBody.innerHTML = '';
+            
+            let totalDebito = 0;
+            let temVencido = false;
+            const hoje = new Date();
+
+            if (erroFinanceiro) {
+                 tableBody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-red-400 italic bg-red-500/10 rounded-lg">Erro ao carregar dados financeiros (API 500). Tente recarregar.</td></tr>';
+                 financeStatusEl.textContent = "Erro na Consulta";
+                 financeStatusEl.className = "text-xl font-bold text-slate-400";
+                 debtInfoEl.textContent = "Dados indisponíveis.";
+            } else if (financeiro.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-500 italic">Nenhum título financeiro encontrado para este perfil.</td></tr>';
+                 financeStatusEl.textContent = "Sem Registros";
+                 financeStatusEl.className = "text-xl font-bold text-slate-400";
+                 debtInfoEl.textContent = "Nada consta.";
+            } else {
+                // Ordenação no Front-end por Vencimento (Decrescente)
+                financeiro.sort((a, b) => {
+                    const dateA = parseBrDate(a.maturityDate);
+                    const dateB = parseBrDate(b.maturityDate);
+                    return dateB - dateA; 
+                });
+
+                financeiro.forEach(titulo => {
+                    const lancamentos = titulo.lancamentos || [];
+                    const creditos = lancamentos.filter(l => l.operationTypeId === 'C').reduce((acc, curr) => acc + parseFloat(curr.value || 0), 0);
+                    const debitos = lancamentos.filter(l => l.operationTypeId === 'D').reduce((acc, curr) => acc + parseFloat(curr.value || 0), 0);
+                    
+                    let valorAtualizado = debitos > 0 ? debitos : parseFloat(titulo.nominalValue || 0);
+                    const saldo = parseFloat(titulo.balance !== undefined ? titulo.balance : 0);
+                    const isCancelado = titulo.isCanceled === 'SIM';
+
+                    let statusClass = "text-blue-400";
+                    let statusText = "Em Aberto";
+                    
+                    let vencimento = parseBrDate(titulo.maturityDate);
+
+                    if (isCancelado) {
+                        statusClass = "text-slate-500 line-through decoration-slate-500";
+                        statusText = "Cancelado";
+                    } else if (saldo <= 0) {
+                        statusClass = "text-green-400 font-bold";
+                        statusText = "Pago";
+                    } else if (vencimento && vencimento < hoje) {
+                        statusClass = "text-red-400 font-bold";
+                        statusText = "Vencido";
+                        temVencido = true;
+                        totalDebito += saldo;
+                    } else {
+                        totalDebito += saldo;
+                    }
+
+                    const row = `
+                        <tr class="hover:bg-slate-800/50 transition border-b border-slate-800 last:border-0">
+                            <td class="px-4 py-3 font-mono text-xs text-slate-300">${titulo.maturityDate || '--'}</td>
+                            <td class="px-4 py-3 text-slate-300">${titulo.parcelNumber || '1'}</td>
+                            <td class="px-4 py-3 text-right text-slate-400">R$ ${valorAtualizado.toFixed(2)}</td>
+                            <td class="px-4 py-3 text-right text-slate-400">R$ ${creditos.toFixed(2)}</td>
+                            <td class="px-4 py-3 text-right font-bold text-white">R$ ${saldo.toFixed(2)}</td>
+                            <td class="px-4 py-3 text-center ${statusClass} text-xs uppercase tracking-wide">${statusText}</td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('beforeend', row);
+                });
+
+                if (temVencido) {
+                    financeStatusEl.textContent = "Inadimplente";
+                    financeStatusEl.className = "text-xl font-bold text-red-400";
+                    debtInfoEl.textContent = `Débito Total Vencido/Aberto: R$ ${totalDebito.toFixed(2)}`;
+                } else if (totalDebito > 0) {
+                    financeStatusEl.textContent = "Regular";
+                    financeStatusEl.className = "text-xl font-bold text-blue-400";
+                    debtInfoEl.textContent = `Saldo a vencer: R$ ${totalDebito.toFixed(2)}`;
+                } else {
+                    financeStatusEl.textContent = "Em dia";
+                    financeStatusEl.className = "text-xl font-bold text-green-400";
+                    debtInfoEl.textContent = "Nada consta.";
+                }
+            }
+        }
+
+        // Helper para parsear data BR (dd/mm/yyyy) para objeto Date
+        function parseBrDate(dateStr) {
+            if(!dateStr) return null;
+            const parts = dateStr.split('/');
+            if(parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+            return null;
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                els.loadingScreen.classList.add('hidden');
+                els.mainPanel.classList.remove('hidden');
+                els.mainPanel.classList.add('flex');
+                checkProxyConnection(); // Verifica conexão com Python ao logar
+                initDataListeners();
+            } else {
+                signInAnonymously(auth).catch(console.error);
+            }
+        });
+
+        function initDataListeners() {
+            const collections = [
+                { name: 'pendencias_imes', stage: 'imes', label: 'Analisado e Aprovado', color: 'green' },
+                { name: 'pendencias_solis', stage: 'solis', label: 'Aguardando Solis', color: 'amber' },
+                { name: 'pendencias_planilha', stage: 'done', label: 'Finalizado', color: 'green' },
+                { name: 'pendencias_tentativas', stage: 'error', label: 'Erro no Processo', color: 'red' }
+            ];
+
+            collections.forEach(col => {
+                onSnapshot(collection(db, col.name), (snap) => {
+                    els.connectionError.classList.add('hidden');
+                    allDocs = allDocs.filter(d => d._source !== col.name);
+                    const newDocs = snap.docs.map(doc => {
+                        const data = doc.data();
+                        return {
+                            id: doc.id,
+                            ...data,
+                            _source: col.name,
+                            _stage: col.stage,
+                            _label: col.label,
+                            _color: col.color,
+                            _dateObj: parseDate(data.created_at || data.timestamp || data.data_hora || data.date)
+                        };
+                    });
+                    allDocs = [...allDocs, ...newDocs];
+                    performSearch(); 
+                }, (error) => els.connectionError.classList.remove('hidden'));
+            });
+        }
+
+        els.searchInput.addEventListener('input', performSearch);
+
+        function performSearch() {
+            const term = els.searchInput.value.toLowerCase().trim();
+            const list = els.timelineList;
+            const empty = els.emptyState;
+            
+            const results = allDocs.filter(doc => {
+                if (term === '') return true;
+                const name = (doc.aluno_nome || '').toLowerCase();
+                const id = (doc.id || '').toLowerCase();
+                let cpf = '';
+                if (doc.dados_analise) {
+                    cpf = doc.dados_analise.cpf || '';
+                    if (!cpf && typeof doc.dados_analise === 'object') {
+                         Object.values(doc.dados_analise).forEach(d => {
+                             if(d?.extracted_data?.numero_cpf) cpf = d.extracted_data.numero_cpf;
+                         });
+                    }
+                }
+                return name.includes(term) || id.includes(term) || cpf.includes(term);
+            });
+
+            results.sort((a, b) => b._dateObj - a._dateObj);
+            els.recordCount.textContent = `${results.length} registros ${term ? 'filtrados' : 'recentes'}`;
+            list.innerHTML = '';
+
+            if (results.length === 0) {
+                empty.classList.remove('hidden');
+                els.emptyText.textContent = allDocs.length === 0 ? "Nenhum dado." : "Nada encontrado.";
+            } else {
+                empty.classList.add('hidden');
+                results.forEach(item => {
+                    const div = document.createElement('div');
+                    const colors = {
+                        blue: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', text: 'text-blue-400', icon: '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>' },
+                        amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/20', text: 'text-amber-400', icon: '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' },
+                        green: { bg: 'bg-green-500/10', border: 'border-green-500/20', text: 'text-green-400', icon: '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>' },
+                        red: { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-400', icon: '<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>' }
+                    };
+                    const theme = colors[item._color];
+                    const dateStr = formatDate(item._dateObj);
+                    const name = item.aluno_nome || "Aluno não identificado";
+                    let subtext = item._stage === 'error' ? (item.erro || "Erro") : `ID: ${item.id.substring(0,8)}...`;
+
+                    div.className = `group bg-slate-800/60 hover:bg-slate-800 border ${theme.border} hover:border-slate-600 rounded-xl p-4 transition cursor-pointer flex justify-between items-center`;
+                    div.innerHTML = `
+                        <div class="flex items-center gap-4 overflow-hidden">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${theme.bg} ${theme.text}">${theme.icon}</div>
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2 mb-0.5">
+                                    <h4 class="font-semibold text-slate-100 truncate">${name}</h4>
+                                    <span class="status-badge ${theme.bg} ${theme.text} text-[10px] whitespace-nowrap">${item._label}</span>
+                                </div>
+                                <p class="text-sm text-slate-400 truncate">${subtext}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-end gap-2 shrink-0 pl-2">
+                            <span class="text-xs text-slate-500 font-mono">${dateStr}</span>
+                            <button class="text-xs font-medium text-blue-400 hover:text-white opacity-0 group-hover:opacity-100 transition">Ver &rarr;</button>
+                        </div>
+                    `;
+                    div.onclick = () => openDetails(item);
+                    list.appendChild(div);
+                });
+            }
+        }
+
+        // Modal Detalhes
+        function openDetails(item) {
+            currentItemSolis = item;
+            const modal = document.getElementById('detail-modal');
+            window.switchModalTab('documentos');
+            document.getElementById('modal-title').textContent = item.aluno_nome || "Documento";
+            document.getElementById('modal-subtitle').textContent = `ID: ${item.id} • ${formatDate(item._dateObj)}`;
+            
+            const statusEl = document.getElementById('modal-status-text');
+            const statusDesc = document.getElementById('modal-status-desc');
+            const statusIcon = document.getElementById('modal-status-icon');
+            
+            statusEl.textContent = item._label;
+            statusEl.className = `text-lg font-bold text-${item._color}-400 leading-tight`;
+            
+            const icons = {
+                blue: '<svg class="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+                green: '<svg class="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+                amber: '<svg class="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+                red: '<svg class="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+            };
+            statusIcon.innerHTML = icons[item._color] || icons.blue;
+            
+            const descriptions = {
+                imes: "Sucesso: O documento já foi analisado e aprovado pela Inteligência Artificial. Aguardando envio automático para o sistema.",
+                solis: "Sucesso: Dados extraídos e aprovados. Aguardando integração final.",
+                done: "Concluído: Processo finalizado com sucesso.",
+                error: "Falha: Ocorreu um erro técnico ou de validação."
+            };
+            statusDesc.textContent = descriptions[item._stage] || "Status desconhecido.";
+
+            // Renderiza Docs IA
+            const dataSection = document.getElementById('modal-data-content');
+            if (item.dados_analise && Object.keys(item.dados_analise).length > 0) {
+                document.getElementById('modal-data-section').classList.remove('hidden');
+                let html = '';
+                for (const [docType, docInfo] of Object.entries(item.dados_analise)) {
+                    if (typeof docInfo === 'object' && docInfo !== null && (docInfo.extracted_data || docInfo.status)) {
+                        const title = docType.replace(/_/g, ' ');
+                        const isApproved = docInfo.status === 'approved';
+                        const badgeColor = isApproved ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+                        const badgeText = isApproved ? 'Aprovado' : 'Atenção';
+                        html += `<div class="bg-slate-800/40 rounded-xl border border-slate-700/50 overflow-hidden"><div class="px-4 py-3 bg-slate-800/80 border-b border-slate-700/50 flex justify-between items-center"><div class="flex items-center gap-2"><svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><span class="font-bold text-white text-sm uppercase tracking-wider">${title}</span></div><span class="${badgeColor} border text-[10px] px-2 py-0.5 rounded font-bold uppercase">${badgeText}</span></div>`;
+                        
+                        if (docInfo.extracted_data) {
+                            html += `<div class="divide-y divide-slate-700/30">`;
+                            for (const [k, v] of Object.entries(docInfo.extracted_data)) {
+                                const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                                html += `<div class="flex flex-col sm:flex-row justify-between py-2 px-4 hover:bg-white/5 transition"><span class="text-xs text-slate-400 font-medium sm:w-1/3 py-1">${label}</span><span class="text-sm text-slate-200 font-medium sm:w-2/3 sm:text-right break-words">${v || '--'}</span></div>`;
+                            }
+                            html += `</div>`;
+                        }
+                        if (docInfo.reason) {
+                            html += `<div class="px-4 py-3 bg-slate-900/30 border-t border-slate-700/30"><p class="text-[11px] text-slate-400 leading-relaxed"><span class="text-blue-400 font-bold uppercase mr-1">Análise IA:</span>${docInfo.reason}</p></div>`;
+                        }
+                        html += `</div>`;
+                    }
+                }
+                dataSection.innerHTML = html || '<div class="p-4 text-slate-500 italic text-center">Nenhum dado específico extraído.</div>';
+            } else {
+                document.getElementById('modal-data-section').classList.add('hidden');
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        window.closeModal = () => {
+            document.getElementById('detail-modal').classList.add('hidden');
+            document.getElementById('detail-modal').classList.remove('flex');
+        };
+
+        function parseDate(ts) {
+            if (!ts) return new Date(0);
+            if (ts.seconds) return new Date(ts.seconds * 1000);
+            const d = new Date(ts);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        }
+
+        function formatDate(date) {
+            if (date.getFullYear() === 1970) return '--/--';
+            return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+    </script>
+</body>
+</html>
