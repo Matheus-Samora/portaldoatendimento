@@ -334,8 +334,9 @@
         import { getFirestore, collection, query, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURAÇÃO PROXY ---
-        // ATENÇÃO: Usando 127.0.0.1 explicitamente para casar com o app.run(host='127.0.0.1') do Python
-        const PROXY_BASE = "http://127.0.0.1:5000";
+        // ATENÇÃO: COLE AQUI O SEU LINK DO RENDER (SEM A BARRA / NO FINAL)
+        // Exemplo: "https://proxy-solis.onrender.com"
+        const PROXY_BASE = "https://nome-do-seu-servico.onrender.com"; 
         const PROXY_URL = `${PROXY_BASE}/proxy`;
 
         // --- ENDPOINTS SOLIS ---
