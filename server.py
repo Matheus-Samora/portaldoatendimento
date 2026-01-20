@@ -21,6 +21,16 @@ REPORT_ID_CPF = "6820251203155305"      # Busca por CPF -> Retorna Detalhes
 REPORT_ID_NOME = "6620251203154311"     # Busca por Nome -> Retorna ID + Nome
 REPORT_ID_DETALHE = "7020251204095501"  # Busca por ID -> Retorna Detalhes Completos
 
+# --- ROTA RAIZ (SOLUÇÃO ERRO 404) ---
+@app.route('/', methods=['GET'])
+def home():
+    """Rota para a página inicial não dar 404"""
+    return jsonify({
+        "mensagem": "Servidor Proxy Solis está ONLINE! 🚀",
+        "instrucoes": "Use o arquivo index.html local para conectar aqui.",
+        "status_check": "/status"
+    }), 200
+
 # --- ROTA DE STATUS (PING) ---
 @app.route('/status', methods=['GET'])
 def server_status():
@@ -53,10 +63,6 @@ def execute_report(report_id, params, step_name="Relatório"):
         response = requests.get(url, headers=headers, json=payload, timeout=20)
         
         print(f"   🔙 Status Code: {response.status_code}")
-        
-        # Log da resposta (primeiros 500 caracteres para não poluir demais se for gigante)
-        # raw_resp = response.text
-        # print(f"   📄 Resposta Raw (início): {raw_resp[:500]}...")
         
         if response.status_code == 200:
             try:
@@ -192,8 +198,6 @@ def proxy_api():
     except Exception as e:
         print(f"   ❌ Exceção: {e}")
         return jsonify({"error": str(e)}), 500
-
-# ... restante do código acima ...
 
 if __name__ == '__main__':
     # Obtém a porta do ambiente (obrigatório para nuvem) ou usa 5000 se for local
